@@ -29,7 +29,7 @@ const ProjectDetail = () => {
         }
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-card rounded-2xl shadow-card p-6">
           <p className="label-caps mb-1">Customer</p>
           <p className="text-sm font-medium text-foreground">{customer?.name}</p>
@@ -45,6 +45,17 @@ const ProjectDetail = () => {
         <div className="bg-card rounded-2xl shadow-card p-6">
           <p className="label-caps mb-1">Created</p>
           <p className="text-sm font-medium text-foreground">{project.createdAt}</p>
+        </div>
+        <div className="bg-card rounded-2xl shadow-card p-6">
+          <p className="label-caps mb-1">Approved Value</p>
+          <p className="text-sm font-bold tabular-nums text-foreground">
+            {project.approvedValue ? formatCurrency(project.approvedValue) : '—'}
+          </p>
+          {project.approvedQuotationId && (
+            <p className="text-xs text-primary mt-1 cursor-pointer hover:underline" onClick={() => navigate(`/quotations/${project.approvedQuotationId}`)}>
+              {project.approvedQuotationId.toUpperCase()}
+            </p>
+          )}
         </div>
       </div>
 
