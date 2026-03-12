@@ -12,6 +12,10 @@ import ProjectDetail from "./pages/ProjectDetail";
 import MaterialsPage from "./pages/MaterialsPage";
 import QuotationsPage from "./pages/QuotationsPage";
 import QuotationBuilder from "./pages/QuotationBuilder";
+import EmployeesPage from "./pages/EmployeesPage";
+import EmployeeDetail from "./pages/EmployeeDetail";
+import UsersPage from "./pages/UsersPage";
+import RolesPage from "./pages/RolesPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +37,10 @@ const App = () => (
             <Route path="/quotations" element={<QuotationsPage />} />
             <Route path="/quotations/new" element={<QuotationBuilder />} />
             <Route path="/quotations/:id" element={<QuotationBuilder />} />
+            <Route path="/employees" element={<EmployeesPage />} />
+            <Route path="/employees/:id" element={<EmployeeDetail />} />
+            <Route path="/users" element={<UsersPage />} />
+            <Route path="/roles" element={<RolesPage />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
