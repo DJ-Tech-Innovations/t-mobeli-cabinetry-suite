@@ -13,7 +13,7 @@ const CustomerDetail = () => {
   if (!customer) return <div className="p-8 text-muted-foreground">Customer not found.</div>;
 
   return (
-    <div className="p-8">
+    <div className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <button onClick={() => navigate('/customers')} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-4">
         <ArrowLeft className="h-4 w-4" /> Back to Customers
       </button>

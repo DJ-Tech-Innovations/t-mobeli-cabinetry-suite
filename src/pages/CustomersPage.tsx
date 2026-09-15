@@ -55,7 +55,7 @@ const CustomersPage = () => {
   };
 
   return (
-    <div className="p-8">
+    <div className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <PageHeader
         title="Customers"
         description="Manage your customer directory"
@@ -84,8 +84,8 @@ const CustomersPage = () => {
             </div>
           </div>
 
-          <div className="bg-card rounded-2xl shadow-card overflow-hidden">
-            <table className="w-full">
+          <div className="bg-card rounded-2xl shadow-card overflow-x-auto">
+            <table className="w-full min-w-[720px] [&_th]:whitespace-nowrap [&_td_span]:whitespace-nowrap">
               <thead>
                 <tr className="border-b border-border">
                   <th className="text-left px-6 py-3 text-sm font-semibold text-foreground">Name</th>

@@ -1,4 +1,4 @@
-// In-memory data store for Phase 1 (will migrate to Lovable Cloud later)
+// In-memory data store for Phase 1 (will migrate to a persistent backend later)
 
 export interface Customer {
   id: string;
@@ -21,13 +21,97 @@ export interface Project {
   createdAt: string;
 }
 
+export const CATEGORY_COLORS = ['amber', 'blue', 'violet', 'emerald', 'rose', 'cyan', 'orange', 'slate'] as const;
+export type CategoryColor = typeof CATEGORY_COLORS[number];
+
+export interface Category {
+  id: string;
+  name: string;
+  description: string;
+  color: CategoryColor;
+}
+
 export interface Material {
   id: string;
   name: string;
-  category: 'wood' | 'hardware' | 'finishing' | 'adhesive' | 'other';
+  /** Category id */
+  category: string;
   unit: string;
   unitPrice: number;
   description: string;
+  stock: number;
+  lowStockThreshold: number;
+  /** Supplier id, or "" when none */
+  supplierId: string;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  /** Material category id this supplier mainly provides */
+  categoryId: string;
+  contactPerson: string;
+  phone: string;
+  email: string;
+  address: string;
+  notes: string;
+  status: 'active' | 'inactive';
+  createdAt: string;
+}
+
+export type StockStatus = 'in-stock' | 'low' | 'out';
+
+export function getStockStatus(m: Pick<Material, 'stock' | 'lowStockThreshold'>): StockStatus {
+  if (m.stock <= 0) return 'out';
+  if (m.stock <= m.lowStockThreshold) return 'low';
+  return 'in-stock';
+}
+
+/** Stock relative to the low-stock threshold, capped at 100%. */
+export function getStockPercent(m: Pick<Material, 'stock' | 'lowStockThreshold'>): number {
+  if (m.lowStockThreshold <= 0) return m.stock > 0 ? 100 : 0;
+  return Math.max(0, Math.min(100, Math.round((m.stock / m.lowStockThreshold) * 100)));
+}
+
+export type FurnitureCategory = 'base-unit' | 'wall-unit' | 'wardrobe' | 'bed' | 'tv-cabinet' | 'other';
+
+export const FURNITURE_CATEGORIES: { id: FurnitureCategory; label: string }[] = [
+  { id: 'base-unit', label: 'Base Unit' },
+  { id: 'wall-unit', label: 'Wall Unit' },
+  { id: 'wardrobe', label: 'Wardrobe' },
+  { id: 'bed', label: 'Bed' },
+  { id: 'tv-cabinet', label: 'TV Cabinet' },
+  { id: 'other', label: 'Other' },
+];
+
+export interface FurnitureBOMItem {
+  id: string;
+  materialId: string;
+  quantity: number;
+}
+
+/** A size variant (e.g. Small / Medium / Large) with its own dimensions and bill of materials. */
+export interface FurnitureVariant {
+  id: string;
+  name: string;
+  /** Dimensions in millimetres */
+  width: number;
+  height: number;
+  depth: number;
+  items: FurnitureBOMItem[];
+}
+
+export interface FurnitureTemplate {
+  id: string;
+  /** Short uppercase identifier used in quotations, e.g. BU-1D2S */
+  code: string;
+  name: string;
+  category: FurnitureCategory;
+  description: string;
+  /** Data URL of the uploaded image, or "" */
+  image: string;
+  variants: FurnitureVariant[];
+  createdAt: string;
 }
 
 export interface BOMItem {
@@ -51,6 +135,113 @@ export interface Quotation {
   approvedAt?: string;
   createdAt: string;
 }
+
+export interface InvoiceLineItem {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export type PaymentMethod = 'cash' | 'bank-transfer' | 'check' | 'gcash' | 'card';
+
+export const PAYMENT_METHODS: { id: PaymentMethod; label: string }[] = [
+  { id: 'cash', label: 'Cash' },
+  { id: 'bank-transfer', label: 'Bank Transfer' },
+  { id: 'check', label: 'Check' },
+  { id: 'gcash', label: 'GCash' },
+  { id: 'card', label: 'Card' },
+];
+
+export interface InvoicePayment {
+  id: string;
+  /** YYYY-MM-DD */
+  date: string;
+  amount: number;
+  method: PaymentMethod;
+  reference: string;
+}
+
+export interface Invoice {
+  id: string;
+  /** e.g. INV-2024-001 */
+  number: string;
+  customerId: string;
+  /** "" when not tied to a project */
+  projectId: string;
+  /** YYYY-MM-DD */
+  issueDate: string;
+  dueDate: string;
+  items: InvoiceLineItem[];
+  discountPercent: number;
+  vatPercent: number;
+  notes: string;
+  /** Stored lifecycle state; partial / paid / overdue are derived from payments and dates. */
+  status: 'draft' | 'sent' | 'cancelled';
+  payments: InvoicePayment[];
+  createdAt: string;
+}
+
+export type InvoiceStatus = 'draft' | 'sent' | 'partial' | 'paid' | 'overdue' | 'cancelled';
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Local date as YYYY-MM-DD. */
+export const todayISO = () => new Date().toLocaleDateString('en-CA');
+
+export const addDaysISO = (iso: string, days: number) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d + days).toLocaleDateString('en-CA');
+};
+
+export function computeInvoiceTotals(inv: Pick<Invoice, 'items' | 'discountPercent' | 'vatPercent' | 'payments'>) {
+  const subtotal = round2(inv.items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0));
+  const discount = round2(subtotal * (inv.discountPercent / 100));
+  const taxable = round2(subtotal - discount);
+  const vat = round2(taxable * (inv.vatPercent / 100));
+  const total = round2(taxable + vat);
+  const paid = round2(inv.payments.reduce((sum, p) => sum + p.amount, 0));
+  const balance = round2(Math.max(0, total - paid));
+  return { subtotal, discount, taxable, vat, total, paid, balance };
+}
+
+export function getInvoiceStatus(inv: Invoice, today = todayISO()): InvoiceStatus {
+  if (inv.status === 'cancelled') return 'cancelled';
+  if (inv.status === 'draft') return 'draft';
+  const { total, paid, balance } = computeInvoiceTotals(inv);
+  if (total > 0 && balance <= 0) return 'paid';
+  if (inv.dueDate < today) return 'overdue';
+  return paid > 0 ? 'partial' : 'sent';
+}
+
+export interface PurchaseOrderItem {
+  id: string;
+  materialId: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export type PurchaseOrderStatus = 'pending' | 'approved' | 'ordered' | 'received' | 'cancelled';
+
+export interface PurchaseOrder {
+  id: string;
+  /** e.g. PO-2024-001 */
+  number: string;
+  supplierId: string;
+  /** YYYY-MM-DD, or "" */
+  expectedDate: string;
+  items: PurchaseOrderItem[];
+  notes: string;
+  status: PurchaseOrderStatus;
+  createdAt: string;
+  receivedAt?: string;
+}
+
+export const purchaseOrderTotal = (po: Pick<PurchaseOrder, 'items'>) =>
+  round2(po.items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0));
+
+export const isOpenPurchaseOrder = (po: Pick<PurchaseOrder, 'status'>) =>
+  po.status === 'pending' || po.status === 'approved' || po.status === 'ordered';
 
 export interface Employee {
   id: string;
@@ -76,10 +267,13 @@ export interface Permission {
 
 export interface Role {
   id: string;
-  name: AppRole;
+  /** Unique lowercase key, e.g. "sales-supervisor" */
+  name: string;
   label: string;
   description: string;
   permissions: string[]; // permission ids
+  /** Built-in role: can't be deleted and its permissions can't be changed */
+  isSystem?: boolean;
 }
 
 export interface User {
@@ -88,6 +282,8 @@ export interface User {
   email: string;
   employeeId?: string;
   roleId: string;
+  /** Extra permission ids granted directly to this user, on top of their role */
+  directPermissions?: string[];
   status: 'active' | 'inactive';
   lastLogin?: string;
   createdAt: string;
@@ -104,7 +300,7 @@ export interface ActivityLog {
 }
 
 // Helper
-let counter = { customer: 3, project: 3, material: 10, quotation: 2, employee: 5, user: 4, activity: 10 };
+let counter = { customer: 3, project: 3, category: 5, supplier: 4, template: 4, invoice: 1, payment: 0, line: 2, po: 2, poline: 3, material: 13, quotation: 2, employee: 5, user: 4, role: 4, activity: 10 };
 const genId = (prefix: string) => `${prefix}-${String(++counter[prefix as keyof typeof counter] || 0).padStart(3, '0')}`;
 
 // Permissions seed
@@ -142,7 +338,7 @@ const permissions: Permission[] = [
 const allPermIds = permissions.map(p => p.id);
 
 const roles: Role[] = [
-  { id: 'role-001', name: 'admin', label: 'Administrator', description: 'Full system access', permissions: [...allPermIds] },
+  { id: 'role-001', name: 'admin', label: 'Administrator', description: 'Full system access', permissions: [...allPermIds], isSystem: true },
   { id: 'role-002', name: 'manager', label: 'Manager', description: 'Manage operations, approve quotations', permissions: allPermIds.filter(id => !['perm-025', 'perm-026'].includes(id)) },
   { id: 'role-003', name: 'agent', label: 'Agent', description: 'Handle customer quotations and projects', permissions: ['perm-001', 'perm-002', 'perm-003', 'perm-005', 'perm-006', 'perm-007', 'perm-009', 'perm-013', 'perm-014', 'perm-015', 'perm-027'] },
   { id: 'role-004', name: 'staff', label: 'Staff', description: 'Basic operational access', permissions: ['perm-001', 'perm-005', 'perm-009', 'perm-013', 'perm-027'] },
@@ -162,7 +358,7 @@ const users: User[] = [
   { id: 'user-001', name: 'Admin User', email: 'admin@tmobeli.com', roleId: 'role-001', status: 'active', lastLogin: '2024-03-12', createdAt: '2024-01-01' },
   { id: 'user-002', name: 'Carlos Rivera', email: 'carlos@tmobeli.com', employeeId: 'employee-001', roleId: 'role-002', status: 'active', lastLogin: '2024-03-11', createdAt: '2024-01-01' },
   { id: 'user-003', name: 'Maria Santos', email: 'maria.s@tmobeli.com', employeeId: 'employee-002', roleId: 'role-003', status: 'active', lastLogin: '2024-03-10', createdAt: '2024-01-10' },
-  { id: 'user-004', name: 'Pedro Cruz', email: 'pedro@tmobeli.com', employeeId: 'employee-003', roleId: 'role-004', status: 'active', lastLogin: '2024-03-09', createdAt: '2024-02-01' },
+  { id: 'user-004', name: 'Pedro Cruz', email: 'pedro@tmobeli.com', employeeId: 'employee-003', roleId: 'role-004', directPermissions: ['perm-011'], status: 'active', lastLogin: '2024-03-09', createdAt: '2024-02-01' },
 ];
 
 // Activity log seed
@@ -192,18 +388,79 @@ const projects: Project[] = [
   { id: 'project-003', customerId: 'customer-003', name: 'Bedroom Wardrobes', description: '3 bedroom custom wardrobe installation', status: 'on-hold', createdAt: '2024-03-15' },
 ];
 
-const materials: Material[] = [
-  { id: 'material-001', name: 'Marine Plywood 3/4"', category: 'wood', unit: 'sheet', unitPrice: 1850, description: '4x8 marine plywood' },
-  { id: 'material-002', name: 'Marine Plywood 1/2"', category: 'wood', unit: 'sheet', unitPrice: 1450, description: '4x8 marine plywood' },
-  { id: 'material-003', name: 'MDF Board 3/4"', category: 'wood', unit: 'sheet', unitPrice: 980, description: '4x8 MDF board' },
-  { id: 'material-004', name: 'Soft-Close Hinge', category: 'hardware', unit: 'pc', unitPrice: 85, description: 'Hydraulic soft-close cabinet hinge' },
-  { id: 'material-005', name: 'Drawer Slide 18"', category: 'hardware', unit: 'pair', unitPrice: 320, description: 'Full extension ball-bearing slide' },
-  { id: 'material-006', name: 'Cabinet Handle - Modern', category: 'hardware', unit: 'pc', unitPrice: 65, description: 'Brushed nickel 128mm handle' },
-  { id: 'material-007', name: 'HPL Laminate Sheet', category: 'finishing', unit: 'sheet', unitPrice: 2200, description: '4x8 high-pressure laminate' },
-  { id: 'material-008', name: 'Edge Banding PVC', category: 'finishing', unit: 'roll', unitPrice: 180, description: '50m roll, 22mm width' },
-  { id: 'material-009', name: 'Wood Glue', category: 'adhesive', unit: 'gallon', unitPrice: 450, description: 'Industrial wood adhesive' },
-  { id: 'material-010', name: 'Contact Cement', category: 'adhesive', unit: 'gallon', unitPrice: 380, description: 'For laminate bonding' },
+const categories: Category[] = [
+  { id: 'wood', name: 'Wood', description: 'Plywood, MDF and boards', color: 'amber' },
+  { id: 'hardware', name: 'Hardware', description: 'Hinges, slides and handles', color: 'blue' },
+  { id: 'finishing', name: 'Finishing', description: 'Laminates and edge banding', color: 'violet' },
+  { id: 'adhesive', name: 'Adhesive', description: 'Glues and cements', color: 'emerald' },
+  { id: 'other', name: 'Other', description: 'Miscellaneous supplies', color: 'slate' },
 ];
+
+const suppliers: Supplier[] = [
+  { id: 'supplier-001', name: 'PH Wood Supply Co.', categoryId: 'wood', contactPerson: 'Roberto Dela Cruz', phone: '+63 917 100 2000', email: 'orders@phwood.com', address: '12 Timber St, Valenzuela City', notes: '3–5 day lead time. 30-day payment terms.', status: 'active', createdAt: '2024-01-05' },
+  { id: 'supplier-002', name: 'Buildrite Hardware', categoryId: 'hardware', contactPerson: 'Alma Reyes', phone: '+63 918 200 3000', email: 'sales@buildrite.ph', address: '45 Industrial Ave, Caloocan City', notes: 'Minimum order ₱5,000.', status: 'active', createdAt: '2024-01-08' },
+  { id: 'supplier-003', name: 'FinishPro Trading', categoryId: 'finishing', contactPerson: 'Dennis Tan', phone: '+63 919 300 4000', email: 'info@finishpro.ph', address: '78 Cavite Export Zone, Rosario', notes: '', status: 'active', createdAt: '2024-01-12' },
+  { id: 'supplier-004', name: 'BondMax Industrial', categoryId: 'adhesive', contactPerson: 'Gina Villanueva', phone: '+63 920 400 5000', email: 'supply@bondmax.ph', address: '90 Chemical St, Pasig City', notes: 'COD only.', status: 'active', createdAt: '2024-01-15' },
+];
+
+const materials: Material[] = [
+  { id: 'material-001', name: 'Marine Plywood 3/4"', category: 'wood', unit: 'sheet', unitPrice: 1850, description: '4x8 marine plywood', stock: 24, lowStockThreshold: 10, supplierId: "supplier-001" },
+  { id: 'material-002', name: 'Marine Plywood 1/2"', category: 'wood', unit: 'sheet', unitPrice: 1450, description: '4x8 marine plywood', stock: 17, lowStockThreshold: 8, supplierId: "supplier-001" },
+  { id: 'material-003', name: 'MDF Board 3/4"', category: 'wood', unit: 'sheet', unitPrice: 980, description: '4x8 MDF board', stock: 15, lowStockThreshold: 10, supplierId: "supplier-001" },
+  { id: 'material-004', name: 'Soft-Close Hinge', category: 'hardware', unit: 'pc', unitPrice: 85, description: 'Hydraulic soft-close cabinet hinge', stock: 120, lowStockThreshold: 50, supplierId: "supplier-002" },
+  { id: 'material-005', name: 'Drawer Slide 18"', category: 'hardware', unit: 'pair', unitPrice: 320, description: 'Full extension ball-bearing slide', stock: 36, lowStockThreshold: 20, supplierId: "supplier-002" },
+  { id: 'material-006', name: 'Cabinet Handle - Modern', category: 'hardware', unit: 'pc', unitPrice: 65, description: 'Brushed nickel 128mm handle', stock: 80, lowStockThreshold: 40, supplierId: "supplier-002" },
+  { id: 'material-007', name: 'HPL Laminate Sheet', category: 'finishing', unit: 'sheet', unitPrice: 2200, description: '4x8 high-pressure laminate', stock: 12, lowStockThreshold: 6, supplierId: "supplier-003" },
+  { id: 'material-008', name: 'Edge Banding PVC', category: 'finishing', unit: 'roll', unitPrice: 180, description: '50m roll, 22mm width', stock: 3, lowStockThreshold: 5, supplierId: "supplier-003" },
+  { id: 'material-009', name: 'Wood Glue', category: 'adhesive', unit: 'gallon', unitPrice: 450, description: 'Industrial wood adhesive', stock: 10, lowStockThreshold: 4, supplierId: "supplier-004" },
+  { id: 'material-010', name: 'Contact Cement', category: 'adhesive', unit: 'gallon', unitPrice: 380, description: 'For laminate bonding', stock: 2, lowStockThreshold: 4, supplierId: "supplier-004" },
+  { id: "material-011", name: "Melamine Board 18mm", category: "wood", unit: "sheet", unitPrice: 750, description: "4x8 woodgrain melamine carcass board", stock: 30, lowStockThreshold: 10, supplierId: "supplier-001" },
+  { id: "material-012", name: "Backing Board 4mm", category: "wood", unit: "sheet", unitPrice: 180, description: "4x8 white melamine backing", stock: 20, lowStockThreshold: 8, supplierId: "supplier-001" },
+  { id: "material-013", name: "Shelf Support Pin", category: "hardware", unit: "pc", unitPrice: 5, description: "5mm nickel shelf pin", stock: 400, lowStockThreshold: 100, supplierId: "supplier-002" },
+];
+
+const bom = (prefix: string, rows: [materialId: string, quantity: number][]): FurnitureBOMItem[] =>
+  rows.map(([materialId, quantity], i) => ({ id: `${prefix}-${i + 1}`, materialId, quantity }));
+
+const furnitureTemplates: FurnitureTemplate[] = [
+  {
+    id: 'template-001', code: 'BU-1D2S', name: 'Base Unit — 1 Drawer 2 Swing Doors', category: 'base-unit', image: '', createdAt: '2024-02-01',
+    description: 'Standard kitchen/cabinet base unit with one top drawer and two swing doors below.',
+    variants: [
+      { id: 'variant-001', name: 'Small', width: 600, height: 720, depth: 560, items: bom('v001', [['material-003', 2], ['material-002', 1], ['material-004', 4], ['material-005', 1], ['material-006', 3]]) },
+      { id: 'variant-002', name: 'Medium', width: 800, height: 720, depth: 560, items: bom('v002', [['material-003', 3], ['material-002', 1], ['material-004', 4], ['material-005', 1], ['material-006', 3]]) },
+      { id: 'variant-003', name: 'Large', width: 1000, height: 720, depth: 560, items: bom('v003', [['material-003', 3], ['material-001', 1], ['material-004', 6], ['material-005', 2], ['material-006', 4]]) },
+    ],
+  },
+  {
+    id: 'template-002', code: 'WU-2S', name: 'Wall Unit — 2 Swing Doors', category: 'wall-unit', image: '', createdAt: '2024-02-03',
+    description: 'Standard overhead wall cabinet with two swing doors. Suitable for kitchen and storage areas.',
+    variants: [
+      { id: 'variant-004', name: 'Small', width: 600, height: 720, depth: 320, items: bom('v004', [['material-003', 2], ['material-004', 4], ['material-006', 2], ['material-008', 1], ['material-009', 1]]) },
+      { id: 'variant-005', name: 'Medium', width: 900, height: 720, depth: 320, items: bom('v005', [['material-003', 3], ['material-004', 4], ['material-006', 2], ['material-008', 1], ['material-009', 1]]) },
+    ],
+  },
+  {
+    id: 'template-003', code: 'WAR-2D', name: 'Wardrobe — 2 Doors', category: 'wardrobe', image: '', createdAt: '2024-02-10',
+    description: '2-door full-height wardrobe with hanging rod, shelves, and adjustable shelf pins.',
+    variants: [
+      { id: 'variant-006', name: 'Small', width: 900, height: 1800, depth: 580, items: bom('v006', [['material-001', 4], ['material-002', 2], ['material-004', 6], ['material-006', 2], ['material-008', 2]]) },
+      { id: 'variant-007', name: 'Medium', width: 1200, height: 2100, depth: 600, items: bom('v007', [['material-001', 5], ['material-002', 2], ['material-004', 8], ['material-006', 2], ['material-008', 2]]) },
+      { id: 'variant-008', name: 'Large', width: 1500, height: 2400, depth: 600, items: bom('v008', [['material-001', 6], ['material-002', 3], ['material-004', 8], ['material-006', 2], ['material-008', 3]]) },
+    ],
+  },
+  {
+    id: 'template-004', code: 'TVC-2DR', name: 'TV Cabinet — 2 Drawers Open Shelf', category: 'tv-cabinet', image: '', createdAt: '2024-02-20',
+    description: 'Low-profile TV console with two drawers and an open center shelf for media devices.',
+    variants: [
+      { id: 'variant-009', name: 'Standard', width: 1800, height: 500, depth: 400, items: bom('v009', [['material-003', 3], ['material-007', 1], ['material-005', 2], ['material-006', 2], ['material-008', 1]]) },
+    ],
+  },
+];
+
+/** Current material cost of one unit of a variant, using live material prices. */
+export const getVariantCost = (variant: Pick<FurnitureVariant, 'items'>) =>
+  variant.items.reduce((sum, item) => sum + (materials.find(m => m.id === item.materialId)?.unitPrice ?? 0) * item.quantity, 0);
 
 const quotations: Quotation[] = [
   {
@@ -226,6 +483,34 @@ const quotations: Quotation[] = [
       { id: 'bom-007', materialId: 'material-008', quantity: 4, unitPrice: 180, totalPrice: 720 },
     ],
     opexPercent: 12, discountPercent: 0, marginPercent: 20, status: 'sent', createdAt: '2024-03-01',
+  },
+];
+
+const purchaseOrders: PurchaseOrder[] = [
+  {
+    id: 'po-002', number: 'PO-2024-002', supplierId: 'supplier-002', expectedDate: '2024-03-25', status: 'received',
+    items: [{ id: 'poline-003', materialId: 'material-005', quantity: 30, unitPrice: 320 }],
+    notes: '', createdAt: '2024-03-12', receivedAt: '2024-03-24',
+  },
+  {
+    id: 'po-001', number: 'PO-2024-001', supplierId: 'supplier-001', expectedDate: '2024-03-20', status: 'received',
+    items: [
+      { id: 'poline-001', materialId: 'material-001', quantity: 20, unitPrice: 1850 },
+      { id: 'poline-002', materialId: 'material-002', quantity: 15, unitPrice: 1450 },
+    ],
+    notes: 'Urgent restock for active projects', createdAt: '2024-03-12', receivedAt: '2024-03-19',
+  },
+];
+
+const invoices: Invoice[] = [
+  {
+    id: 'invoice-001', number: 'INV-2024-001', customerId: 'customer-001', projectId: 'project-001',
+    issueDate: '2024-03-13', dueDate: '2024-04-12',
+    items: [
+      { id: 'line-001', description: 'Kitchen Upper & Lower Cabinets - Labor & Materials', quantity: 1, unitPrice: 45000 },
+      { id: 'line-002', description: 'Installation & Finishing', quantity: 1, unitPrice: 8500 },
+    ],
+    discountPercent: 5, vatPercent: 12, notes: 'Payment due within 30 days.', status: 'sent', payments: [], createdAt: '2024-03-13',
   },
 ];
 
@@ -270,6 +555,72 @@ export const store = {
     if (i >= 0) projects.splice(i, 1);
   },
 
+  // Material categories
+  getCategories: () => [...categories],
+  getCategory: (id: string) => categories.find(c => c.id === id),
+  addCategory: (data: Omit<Category, 'id'>) => {
+    const c: Category = { ...data, id: genId('category') };
+    categories.push(c);
+    store.addActivity({ action: 'created', entity: 'category', entityId: c.id, details: `Created material category ${c.name}` });
+    return c;
+  },
+  updateCategory: (id: string, data: Partial<Omit<Category, 'id'>>) => {
+    const i = categories.findIndex(c => c.id === id);
+    if (i >= 0) { categories[i] = { ...categories[i], ...data }; return categories[i]; }
+    return null;
+  },
+  /** Refuses to delete a category that is still assigned to materials or suppliers. */
+  deleteCategory: (id: string) => {
+    if (materials.some(m => m.category === id) || suppliers.some(s => s.categoryId === id)) return false;
+    const i = categories.findIndex(c => c.id === id);
+    if (i >= 0) categories.splice(i, 1);
+    return i >= 0;
+  },
+
+  // Suppliers
+  getSuppliers: () => [...suppliers],
+  getSupplier: (id: string) => suppliers.find(s => s.id === id),
+  addSupplier: (data: Omit<Supplier, 'id' | 'createdAt'>) => {
+    const s: Supplier = { ...data, id: genId('supplier'), createdAt: new Date().toISOString().split('T')[0] };
+    suppliers.push(s);
+    store.addActivity({ action: 'created', entity: 'supplier', entityId: s.id, details: `Added supplier ${s.name}` });
+    return s;
+  },
+  updateSupplier: (id: string, data: Partial<Omit<Supplier, 'id' | 'createdAt'>>) => {
+    const i = suppliers.findIndex(s => s.id === id);
+    if (i >= 0) { suppliers[i] = { ...suppliers[i], ...data }; return suppliers[i]; }
+    return null;
+  },
+  /** Refuses to delete a supplier that is still linked to materials. */
+  deleteSupplier: (id: string) => {
+    if (materials.some(m => m.supplierId === id) || purchaseOrders.some(p => p.supplierId === id)) return false;
+    const i = suppliers.findIndex(s => s.id === id);
+    if (i >= 0) suppliers.splice(i, 1);
+    return i >= 0;
+  },
+
+  // Furniture templates
+  getTemplates: () => [...furnitureTemplates],
+  getTemplate: (id: string) => furnitureTemplates.find(t => t.id === id),
+  addTemplate: (data: Omit<FurnitureTemplate, 'id' | 'createdAt'>) => {
+    const t: FurnitureTemplate = { ...data, id: genId('template'), createdAt: new Date().toISOString().split('T')[0] };
+    furnitureTemplates.push(t);
+    store.addActivity({ action: 'created', entity: 'template', entityId: t.id, details: `Created furniture template ${t.code}` });
+    return t;
+  },
+  updateTemplate: (id: string, data: Partial<Omit<FurnitureTemplate, 'id' | 'createdAt'>>) => {
+    const i = furnitureTemplates.findIndex(t => t.id === id);
+    if (i >= 0) { furnitureTemplates[i] = { ...furnitureTemplates[i], ...data }; return furnitureTemplates[i]; }
+    return null;
+  },
+  deleteTemplate: (id: string) => {
+    const i = furnitureTemplates.findIndex(t => t.id === id);
+    if (i >= 0) furnitureTemplates.splice(i, 1);
+  },
+  /** Number of templates whose BOM references the material. */
+  countTemplatesUsingMaterial: (materialId: string) =>
+    furnitureTemplates.filter(t => t.variants.some(v => v.items.some(i => i.materialId === materialId))).length,
+
   // Materials
   getMaterials: () => [...materials],
   getMaterial: (id: string) => materials.find(m => m.id === id),
@@ -286,6 +637,75 @@ export const store = {
   deleteMaterial: (id: string) => {
     const i = materials.findIndex(m => m.id === id);
     if (i >= 0) materials.splice(i, 1);
+  },
+
+  // Purchase orders
+  getPurchaseOrders: () => [...purchaseOrders],
+  getPurchaseOrder: (id: string) => purchaseOrders.find(p => p.id === id),
+  addPurchaseOrder: (data: Omit<PurchaseOrder, 'id' | 'number' | 'status' | 'createdAt' | 'receivedAt'>) => {
+    const createdAt = todayISO();
+    const prefix = `PO-${createdAt.slice(0, 4)}-`;
+    const seq = purchaseOrders
+      .filter(p => p.number.startsWith(prefix))
+      .reduce((max, p) => Math.max(max, Number(p.number.slice(prefix.length)) || 0), 0) + 1;
+    const po: PurchaseOrder = { ...data, id: genId('po'), number: `${prefix}${String(seq).padStart(3, '0')}`, status: 'pending', createdAt };
+    purchaseOrders.unshift(po);
+    store.addActivity({ action: 'created', entity: 'purchase-order', entityId: po.id, details: `Created purchase order ${po.number} (${formatCurrency(purchaseOrderTotal(po))})` });
+    return po;
+  },
+  updatePurchaseOrder: (id: string, data: Partial<Omit<PurchaseOrder, 'id' | 'number' | 'createdAt'>>) => {
+    const i = purchaseOrders.findIndex(p => p.id === id);
+    if (i >= 0) { purchaseOrders[i] = { ...purchaseOrders[i], ...data }; return purchaseOrders[i]; }
+    return null;
+  },
+  deletePurchaseOrder: (id: string) => {
+    const i = purchaseOrders.findIndex(p => p.id === id);
+    if (i >= 0) purchaseOrders.splice(i, 1);
+  },
+  /** Marks an open order as received and adds its quantities to material stock. */
+  receivePurchaseOrder: (id: string) => {
+    const po = purchaseOrders.find(p => p.id === id);
+    if (!po || !isOpenPurchaseOrder(po)) return null;
+    for (const item of po.items) {
+      const m = materials.find(mat => mat.id === item.materialId);
+      if (m) m.stock += item.quantity;
+    }
+    po.status = 'received';
+    po.receivedAt = todayISO();
+    store.addActivity({ action: 'updated', entity: 'purchase-order', entityId: po.id, details: `Received ${po.number} — stock updated` });
+    return po;
+  },
+
+  // Invoices
+  getInvoices: () => [...invoices],
+  getInvoice: (id: string) => invoices.find(i => i.id === id),
+  addInvoice: (data: Omit<Invoice, 'id' | 'number' | 'payments' | 'createdAt'>) => {
+    const year = data.issueDate.slice(0, 4) || String(new Date().getFullYear());
+    const prefix = `INV-${year}-`;
+    const seq = invoices
+      .filter(i => i.number.startsWith(prefix))
+      .reduce((max, i) => Math.max(max, Number(i.number.slice(prefix.length)) || 0), 0) + 1;
+    const inv: Invoice = { ...data, id: genId('invoice'), number: `${prefix}${String(seq).padStart(3, '0')}`, payments: [], createdAt: todayISO() };
+    invoices.unshift(inv);
+    store.addActivity({ action: 'created', entity: 'invoice', entityId: inv.id, details: `Created invoice ${inv.number}` });
+    return inv;
+  },
+  updateInvoice: (id: string, data: Partial<Omit<Invoice, 'id' | 'number' | 'createdAt'>>) => {
+    const i = invoices.findIndex(inv => inv.id === id);
+    if (i >= 0) { invoices[i] = { ...invoices[i], ...data }; return invoices[i]; }
+    return null;
+  },
+  deleteInvoice: (id: string) => {
+    const i = invoices.findIndex(inv => inv.id === id);
+    if (i >= 0) invoices.splice(i, 1);
+  },
+  recordPayment: (invoiceId: string, payment: Omit<InvoicePayment, 'id'>) => {
+    const inv = invoices.find(i => i.id === invoiceId);
+    if (!inv) return null;
+    inv.payments = [...inv.payments, { ...payment, id: genId('payment') }];
+    if (inv.status === 'draft') inv.status = 'sent';
+    store.addActivity({ action: 'updated', entity: 'invoice', entityId: inv.id, details: `Recorded ${formatCurrency(payment.amount)} payment on ${inv.number}` });
+    return inv;
   },
 
   // Quotations
@@ -383,10 +803,40 @@ export const store = {
   // Roles & Permissions
   getRoles: () => [...roles],
   getRole: (id: string) => roles.find(r => r.id === id),
-  updateRole: (id: string, data: Partial<Role>) => {
+  addRole: (data: Omit<Role, 'id' | 'isSystem'>) => {
+    const r: Role = { ...data, id: genId('role') };
+    roles.push(r);
+    store.addActivity({ action: 'created', entity: 'role', entityId: r.id, details: `Created role ${r.label}` });
+    return r;
+  },
+  updateRole: (id: string, data: Partial<Omit<Role, 'id' | 'isSystem'>>) => {
     const i = roles.findIndex(r => r.id === id);
-    if (i >= 0) { roles[i] = { ...roles[i], ...data }; return roles[i]; }
-    return null;
+    if (i < 0) return null;
+    // System roles keep their key and full permission set
+    const safe = roles[i].isSystem ? { ...data, name: roles[i].name, permissions: roles[i].permissions } : data;
+    roles[i] = { ...roles[i], ...safe };
+    return roles[i];
+  },
+  /** Refuses to delete system roles or roles still assigned to users. */
+  deleteRole: (id: string) => {
+    const i = roles.findIndex(r => r.id === id);
+    if (i < 0 || roles[i].isSystem || users.some(u => u.roleId === id)) return false;
+    store.addActivity({ action: 'deleted', entity: 'role', entityId: id, details: `Deleted role ${roles[i].label}` });
+    roles.splice(i, 1);
+    return true;
+  },
+  countUsersInRole: (id: string) => users.filter(u => u.roleId === id).length,
+  /** Role permissions, extra direct grants, and the combined effective set for a user. */
+  getUserPermissions: (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    const fromRole = roles.find(r => r.id === user?.roleId)?.permissions ?? [];
+    const direct = (user?.directPermissions ?? []).filter(p => !fromRole.includes(p));
+    return { fromRole, direct, effective: [...new Set([...fromRole, ...direct])] };
+  },
+  /** Permission check by name, e.g. store.userCan(id, 'materials.edit') */
+  userCan: (userId: string, permissionName: string) => {
+    const perm = permissions.find(p => p.name === permissionName);
+    return !!perm && store.getUserPermissions(userId).effective.includes(perm.id);
   },
   getPermissions: () => [...permissions],
   getPermission: (id: string) => permissions.find(p => p.id === id),

@@ -10,6 +10,10 @@ import CustomerDetail from "./pages/CustomerDetail";
 import ProjectsPage from "./pages/ProjectsPage";
 import ProjectDetail from "./pages/ProjectDetail";
 import MaterialsPage from "./pages/MaterialsPage";
+import SuppliersPage from "./pages/SuppliersPage";
+import FurnitureBuilderPage from "./pages/FurnitureBuilderPage";
+import InvoicesPage from "./pages/InvoicesPage";
+import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
 import QuotationsPage from "./pages/QuotationsPage";
 import QuotationBuilder from "./pages/QuotationBuilder";
 import EmployeesPage from "./pages/EmployeesPage";
@@ -34,6 +38,10 @@ const App = () => (
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/:id" element={<ProjectDetail />} />
             <Route path="/materials" element={<MaterialsPage />} />
+            <Route path="/purchase-orders" element={<PurchaseOrdersPage />} />
+            <Route path="/suppliers" element={<SuppliersPage />} />
+            <Route path="/furniture-builder" element={<FurnitureBuilderPage />} />
+            <Route path="/invoices" element={<InvoicesPage />} />
             <Route path="/quotations" element={<QuotationsPage />} />
             <Route path="/quotations/new" element={<QuotationBuilder />} />
             <Route path="/quotations/:id" element={<QuotationBuilder />} />

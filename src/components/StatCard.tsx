@@ -9,10 +9,14 @@ interface StatCardProps {
 
 export function StatCard({ label, value, subtitle, icon }: StatCardProps) {
   return (
-    <div className="bg-card rounded-2xl p-5 shadow-card">
-      <div className="flex items-center justify-between mb-2">
+    <div className="bg-card rounded-2xl p-5 shadow-card transition-shadow hover:shadow-card-hover">
+      <div className="flex items-center justify-between gap-2 mb-3">
         <p className="label-caps">{label}</p>
-        {icon && <span className="text-muted-foreground">{icon}</span>}
+        {icon && (
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+            {icon}
+          </span>
+        )}
       </div>
       <p className="text-2xl font-bold text-foreground tabular-nums">{value}</p>
       {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
